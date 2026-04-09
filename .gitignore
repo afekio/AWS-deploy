@@ -1,0 +1,10 @@
+Questions
+*.logs
+.aws
+*.log
+.venv/
+__pycache__/
+reservation.json
+TODO.txt
+GITHUB-URL.txt
+front/
