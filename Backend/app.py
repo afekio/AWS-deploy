@@ -32,8 +32,13 @@ S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 AUTH_SERVICE_URL = os.getenv('AUTH_SERVICE_URL')
 AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
 
-# Initialize AWS S3 client
+# --- SQS INTEGRATION ---
+SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL')
+
+# Initialize AWS clients
 s3_client = boto3.client('s3', region_name=AWS_REGION)
+sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+
 
 # --- Authentication Middleware (Stateless) ---
 def token_required(f):
@@ -75,6 +80,31 @@ def upload_to_s3(file_content, file_name, user_id):
     except Exception as e:
         f_logger.error(f"S3 Upload Error for {file_name}: {e}")
         return None
+
+
+# --- NEW SQS INTEGRATION: Producer Function ---
+def send_sqs_message(action, data_payload):
+    """
+    Sends a message to the SQS queue so the Auth service can pick it up
+    and process it asynchronously (like saving metadata to RDS).
+    """
+    if not SQS_QUEUE_URL:
+        f_logger.warning("SQS_QUEUE_URL is not set. Cannot send message to SQS.")
+        return
+
+    message_body = {
+        "action": action,
+        "data": data_payload
+    }
+
+    try:
+        response = sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps(message_body)
+        )
+        f_logger.info(f"Action: SEND_SQS_MESSAGE | Status: SUCCESS | Action Type: {action} | Message ID: {response['MessageId']}")
+    except Exception as e:
+        f_logger.error(f"Action: SEND_SQS_MESSAGE | Status: FAILED | Error: {e}")
 
 
 # --- Provisioning Logic ---
@@ -255,7 +285,6 @@ def provision(current_user_id):
     extension = 'tf' if infra_type == 'terraform' else 'json'
     file_name = f"{base_name}_{timestamp}.{extension}"
     
-    # Ensure content is a string before uploading
     content_to_save = response_payload if isinstance(response_payload, str) else json.dumps(response_payload, indent=2)
     
     s3_key = upload_to_s3(content_to_save, file_name, current_user_id)
@@ -263,32 +292,19 @@ def provision(current_user_id):
     if not s3_key:
         return jsonify({"error": "Failed to store generated file in S3"}), 500
 
-    # --- FIX 2: NOTIFY AUTH SERVICE WITH THE CORRECT ENDPOINT ---
-    try:
-        internal_payload = {
-            "user_id": current_user_id,
-            "file_name": file_name,
-            "file_type": infra_type,
-            "s3_key": s3_key
-        }
-        internal_headers = {
-            "X-Internal-Secret": app.config['SECRET_KEY'],
-            "Content-Type": "application/json"
-        }
-        
-        # Append the correct routing path for the Auth service metadata endpoint
-        auth_endpoint = f"{AUTH_SERVICE_URL.rstrip('/')}/api/internal/save_metadata"
-        res = requests.post(auth_endpoint, json=internal_payload, headers=internal_headers, timeout=5)
-        
-        if res.status_code != 200:
-            f_logger.error(f"Failed to notify Auth service about S3 upload. Status: {res.status_code}")
-        else:
-            f_logger.info(f"Auth service successfully updated RDS for file {file_name}")
-            
-    except Exception as e:
-        f_logger.error(f"Network error when notifying Auth service: {e}")
-
-    # ---------------------------------------
+    # --- NEW SQS INTEGRATION: Notify Auth Service Asynchronously ---
+    # Instead of a direct HTTP request that could fail or timeout,
+    # we now drop a message into the SQS queue. The Auth service will
+    # pick this up in its background worker and save it to RDS.
+    sqs_payload = {
+        "user_id": current_user_id,
+        "file_name": file_name,
+        "file_type": infra_type,
+        "s3_key": s3_key
+    }
+    
+    send_sqs_message("save_metadata", sqs_payload)
+    f_logger.info(f"Metadata sync task dispatched to SQS for file {file_name}")
 
     if install_script != 'none':
         deployment_success = run_bash_installation(os_key)

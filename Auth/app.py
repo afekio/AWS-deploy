@@ -1,5 +1,8 @@
 import os
 import datetime
+import json
+import time
+import threading # --- NEW SQS INTEGRATION: Added for background processing
 from functools import wraps
 from flask import Flask, request, jsonify
 import jwt
@@ -29,15 +32,18 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
 S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 SNS_TOPIC_ARN = os.getenv('SNS_TOPIC_ARN')
-AWS_REGION = os.getenv('AWS_REGION')
+AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+
+# --- NEW SQS INTEGRATION ---
+SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL')
 
 db.init_app(app)
 
 # Initialize AWS Clients
-# Note: Boto3 automatically reads AWS_ACCESS_KEY_ID from .env if it exists
 s3_client = boto3.client('s3', region_name=AWS_REGION)
 sns_client = boto3.client('sns', region_name=AWS_REGION)
 cloudwatch_client = boto3.client('cloudwatch', region_name=AWS_REGION)
+sqs_client = boto3.client('sqs', region_name=AWS_REGION) # --- NEW SQS INTEGRATION ---
 
 # ==========================================
 # Helper Functions
@@ -59,12 +65,84 @@ def send_sns_alert(subject, message, severity="INFO"):
     except Exception as e:
         auth_logger.error(f"Action: SEND_SNS_ALERT | Status: FAILED | Error: {e}")
 
+
+# --- NEW SQS INTEGRATION: Background Worker (Consumer) ---
+def process_sqs_messages():
+    """
+    Runs in a background thread. Polls SQS for new messages sent by the Backend
+    (e.g., when a new Terraform file is created and uploaded to S3) and saves
+    the metadata directly to the RDS database.
+    """
+    if not SQS_QUEUE_URL:
+        auth_logger.warning("SQS_QUEUE_URL is not set. SQS Worker won't start.")
+        return
+
+    auth_logger.info("SQS Worker started successfully! Listening for metadata sync tasks...")
+    
+    while True:
+        try:
+            # Long Polling: Wait up to 10 seconds for a message
+            response = sqs_client.receive_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MaxNumberOfMessages=1,
+                WaitTimeSeconds=10
+            )
+
+            if 'Messages' in response:
+                for message in response['Messages']:
+                    receipt_handle = message['ReceiptHandle']
+                    body = json.loads(message['Body'])
+
+                    action = body.get('action')
+                    task_data = body.get('data', {})
+
+                    # --- Task: Save Metadata to DB ---
+                    if action == "save_metadata":
+                        user_id = task_data.get('user_id')
+                        file_name = task_data.get('file_name')
+                        file_type = task_data.get('file_type')
+                        s3_key = task_data.get('s3_key')
+
+                        if all([user_id, file_name, file_type, s3_key]):
+                            auth_logger.info(f"[SQS TASK] Processing metadata sync for user {user_id}, file: {file_name}")
+                            
+                            # Because this runs in a background thread, we MUST use the app context
+                            # to interact with the SQLAlchemy database.
+                            with app.app_context():
+                                try:
+                                    new_deployment = DeploymentHistory(
+                                        user_id=user_id,
+                                        file_name=file_name,
+                                        file_type=file_type,
+                                        s3_key=s3_key
+                                    )
+                                    db.session.add(new_deployment)
+                                    db.session.commit()
+                                    auth_logger.info(f"[SQS TASK] Metadata saved to RDS successfully.")
+                                except Exception as e:
+                                    db.session.rollback()
+                                    auth_logger.error(f"[SQS TASK] DB Error saving metadata: {e}")
+                        else:
+                            auth_logger.warning(f"[SQS TASK] Missing required fields in message: {task_data}")
+
+                    # --- Delete the message after successful processing ---
+                    sqs_client.delete_message(
+                        QueueUrl=SQS_QUEUE_URL,
+                        ReceiptHandle=receipt_handle
+                    )
+
+        except Exception as e:
+            auth_logger.error(f"Error processing SQS message: {e}")
+            time.sleep(5) # Prevent rapid failure loops
+
+
 # ==========================================
 # Startup Health Checks
 # ==========================================
 @app.route('/health', methods=['GET'])
 def health_check():
     return {"status": "ok"}, 200
+
 try:
     sns_client.get_topic_attributes(TopicArn=SNS_TOPIC_ARN)
     auth_logger.info(f"System Startup | Status: SUCCESS | Connected to AWS SNS. Topic Verified: {SNS_TOPIC_ARN}")
@@ -109,6 +187,8 @@ def token_required(f):
 # ==========================================
 # Internal Microservice Routes
 # ==========================================
+# Note: This route is kept for manual/direct API testing, 
+# but the primary flow now uses the SQS background worker above.
 @app.route('/api/internal/save_metadata', methods=['POST'])
 def save_metadata():
     data = request.get_json()
@@ -136,13 +216,13 @@ def save_metadata():
         db.session.add(new_deployment)
         db.session.commit()
         
-        auth_logger.info(f"Action: SAVE_METADATA | Status: SUCCESS | User ID: {user_id} | File: {file_name}")
+        auth_logger.info(f"Action: SAVE_METADATA_HTTP | Status: SUCCESS | User ID: {user_id} | File: {file_name}")
         return jsonify({'message': 'Metadata saved successfully'}), 200
         
     except Exception as e:
         db.session.rollback()
         error_msg = f"User ID: {user_id} | Error: {e}"
-        auth_logger.critical(f"Action: SAVE_METADATA | Status: CRITICAL | {error_msg}")
+        auth_logger.critical(f"Action: SAVE_METADATA_HTTP | Status: CRITICAL | {error_msg}")
         send_sns_alert("Database Save Error (Metadata)", error_msg, "CRITICAL")
         return jsonify({'error': 'Database error'}), 500
 
@@ -175,7 +255,8 @@ def register():
         db.session.commit()
         
         auth_logger.info(f"Action: REGISTER | Status: SUCCESS | User: {new_user.username}")
-        # --- NEW SNS TRIGGER: New User Registration ---
+        
+        # SNS Trigger (Email Alert)
         send_sns_alert("New User Registration", f"Username: {new_user.username}\nEmail: {new_user.email}\nFull Name: {new_user.full_name}", "INFO")
         
         return jsonify({'message': 'User registered successfully'}), 201
@@ -213,7 +294,6 @@ def login():
             }), 200
             
         auth_logger.warning(f"Action: LOGIN | Status: WARNING | Attempted Username: {username} | Reason: Invalid password or user not found.")
-        # --- NEW SNS TRIGGER: Failed Login Attempt ---
         send_sns_alert("Failed Login Attempt", f"Someone attempted to log in with the username: '{username}' but provided invalid credentials.", "WARNING")
         return jsonify({'error': 'Invalid username or password'}), 401
         
@@ -235,35 +315,27 @@ def logout(current_user):
 @token_required
 def get_profile(current_user):
     try:
-        # Fetch all deployments from DB
         deployments = DeploymentHistory.query.filter_by(user_id=current_user.id).all()
         valid_deployments = []
         db_changed = False
 
-        # Lazy sync with S3
         for d in deployments:
             try:
-                # Fast check to see if the file exists in S3
                 s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=d.s3_key)
                 valid_deployments.append(d)
-                
             except ClientError as e:
                 error_code = e.response['Error']['Code']
-                # 404 indicates the file is no longer in S3
                 if error_code == '404' or error_code == '403':
                     auth_logger.info(f"Auto-Sync: File {d.file_name} not found in S3. Removing from DB.")
                     db.session.delete(d)
                     db_changed = True
                 else:
-                    # Log other errors but keep the record to prevent accidental deletion
                     auth_logger.warning(f"S3 Head Object Error for {d.s3_key}: {e}")
                     valid_deployments.append(d)
 
-        # Commit deletions to DB if any occurred
         if db_changed:
             db.session.commit()
 
-        # Sort the valid list newest first
         valid_deployments.sort(key=lambda x: x.created_at, reverse=True)
 
         return jsonify({
@@ -330,7 +402,6 @@ def get_user_file(current_user, file_id):
         
         auth_logger.info(f"Action: FILE_{action} | Status: SUCCESS | User: {current_user.username} | File Name: {deployment.file_name}")
         
-        # --- NEW SNS TRIGGER: File View/Download ---
         send_sns_alert(
             f"File Accessed ({action})", 
             f"User '{current_user.username}' successfully {action.lower()}ed the file '{deployment.file_name}'.\nS3 Path: {deployment.s3_key}", 
@@ -351,4 +422,8 @@ def get_user_file(current_user, file_id):
 
 
 if __name__ == '__main__':
+    # --- NEW SQS INTEGRATION: Start the background worker ---
+    worker_thread = threading.Thread(target=process_sqs_messages, daemon=True)
+    worker_thread.start()
+    
     app.run(host='0.0.0.0', port=5001)
