@@ -10,36 +10,22 @@ GITHUB-URL.txt
 front/
 .DS_Store
 .env
-
-# --- Terraform State Files ---
-# These contain the current state of your infrastructure. 
-# They can include sensitive data in plain text. Never commit them!
 *.tfstate
 *.tfstate.*
-
-# --- Local Workspace / Provider Plugins ---
-# This folder contains the downloaded providers (binaries) and modules.
-# It's unique to your machine/OS and can be very large.
 .terraform/
-
-# --- Variable Files (The "Secret" Zone) ---
-# These files usually contain passwords, API keys, and environment-specific values.
 *.tfvars
+*.tfplan
 *.tfvars.json
-
-# --- Log Files ---
-# Useful for debugging locally, but unnecessary for the repo.
 crash.log
+secret.tfvars
+secret.tf
 crash.*.log
 terraform.tfstate.lock.info
-
-# --- Override Files ---
-# Used for local tweaks that shouldn't affect the rest of the team.
+.terraform.lock.hcl
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-
-# --- CLI Configuration ---
 .terraformrc
 terraform.rc
+
