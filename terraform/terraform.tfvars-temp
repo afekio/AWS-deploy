@@ -1,0 +1,43 @@
+# ==========================================
+# MAIN VARIABLES VALUES (tfvars)
+# Purpose: The control panel of the project. Contains all non-sensitive values.
+# ==========================================
+
+# --- General ---
+aws_region   = "us-region"
+project_name = "name-of-project"
+environment  = "dev"
+
+# --- Networking ---
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+availability_zones   = ["us-east-1a", "us-east-1b"]
+namespace_name       = "main-project.local"
+
+# --- Database ---
+db_engine_version    = "15.7"
+db_instance_class    = "db.t3.micro"
+db_allocated_storage = 20
+db_name              = "appdb"
+db_username          = "dbadmin"
+db_password          = "dbpassword"
+app_secret_key       = "secretekey"
+# --- App Configuration (Docker) ---
+frontend_image = "afekio/main-project:frontend"
+backend_image  = "afekio/main-project:backend0.2"
+auth_image     = "afekio/main-project:auth0.2"
+
+# --- ECS Auto-Scaling ---
+ecs_task_cpu     = "256"
+ecs_task_memory  = "512"
+app_min_tasks    = 1
+app_max_tasks    = 3
+cpu_scale_target = 75.0
+
+# --- Alerts ---
+alert_emails = [
+  "email@example.com"
+]
+
+# --- Feature ---
+enable_sqs = true
