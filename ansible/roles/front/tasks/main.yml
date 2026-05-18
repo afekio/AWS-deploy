@@ -1,0 +1,38 @@
+---
+# 1. התקנת Nginx
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+
+# 2. הפעלת השירות
+- name: Ensure Nginx is running and enabled
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes
+
+# 3. העתקת קבצי ה-React
+# שים לב ללוכסן בסוף `dist/` - הוא אומר לאנסבל להעתיק את התוכן של התיקייה, ולא את התיקייה עצמה
+- name: Copy React build files to /var/www/html
+  copy:
+    src: dist/
+    dest: /var/www/html/
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+# 4. מחיקת קובץ הדיפולט המובנה של אובונטו כדי למנוע התנגשות על פורט 80
+- name: Remove default Ubuntu Nginx configuration
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Restart Nginx
+
+# 5. העתקת קובץ ה-nginx.cfg שלך 
+- name: Copy custom Nginx configuration file
+  template:
+    src: nginx.cfg.j2
+    dest: /etc/nginx/conf.d/default.conf
+  notify: Restart Nginx

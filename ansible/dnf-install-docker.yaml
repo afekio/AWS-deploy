@@ -1,0 +1,24 @@
+#ansibel-playbook to run bash script
+- name: Update and install docker
+  hosts: servers
+  become: yes
+  tasks:
+    - name: Update dnf cache
+      dnf:
+        update_cache: yes
+
+    - name: Install Docker
+      dnf:
+        name: docker
+        state: present
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+    - name: Add user to docker group
+      user:
+        name: ec2-user
+        groups: docker
+        append: yes

@@ -1,0 +1,12 @@
+[front]
+front ansible_host=44.223.102.42
+
+[back]
+back ansible_host=44.199.231.255
+
+[auth]
+auth ansible_host=44.200.56.165
+
+[all:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/app-key.pem

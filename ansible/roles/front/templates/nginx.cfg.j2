@@ -1,0 +1,51 @@
+server {
+    listen 80;
+    server_name _;
+
+    # 1. AWS VPC DNS Resolver - Forces Nginx to re-resolve IPs dynamically
+    resolver 169.254.169.253 valid=10s;
+
+    root /var/www/html;
+    index index.html;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # 2. Define backend URLs as variables using our Cloud Map namespace
+    set $auth_backend "http://{{ auth_private_ip }}:5001";
+    set $prov_backend "http://{{ back_private_ip }}:5000";
+
+    # --- 1. Health Checks ---
+    location = /api/auth/health {
+        proxy_pass $auth_backend/health;
+    }
+    location = /api/provision/health {
+        proxy_pass $prov_backend/health;
+    }
+
+    # --- 2. Auth Service (PRIORITY) ---
+    location ~ ^/api/(auth|login|register|user) {
+        # If the request has /api/auth/ (like in React), strip the 'auth' part
+        rewrite ^/api/auth/(.*) /api/$1 break;
+        
+        proxy_pass $auth_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # --- 3. Provisioning Service ---
+    location /api/provision {
+        proxy_pass $prov_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # --- 4. React Frontend ---
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+    }
+}

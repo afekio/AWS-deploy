@@ -1,0 +1,97 @@
+---
+# ========================================================
+# שלב 1: הקמת התשתית ומיפוי משתנים מדויק לכל שרת
+# ========================================================
+- name: Provision Infrastructure and Map Variables
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Apply Terraform configuration
+      community.general.terraform:
+        project_path: './terraform-ec2'
+        state: present
+        force_init: true
+      register: tf_result
+
+    # -- 1. הזרקת שרת ה-Front --
+    - name: Add Frontend EC2 to inventory
+      add_host:
+        name: "{{ tf_result.outputs.front_public_ip.value }}"
+        groups: front
+        ansible_user: ubuntu
+        auth_private_ip: "{{ tf_result.outputs.auth_private_ip.value }}"
+        back_private_ip: "{{ tf_result.outputs.back_private_ip.value }}"
+        app_name: "frontend"
+        app_port: 80
+
+    # -- 2. הזרקת שרת ה-Back --
+    - name: Add Backend EC2 to dynamic inventory
+      add_host:
+        name: "{{ tf_result.outputs.back_public_ip.value }}"
+        groups: back
+        ansible_user: ubuntu
+        aws_region: "us-east-1"
+        auth_service_url: "http://{{ tf_result.outputs.auth_private_ip.value }}:5001"
+        app_dir: "/opt/back_app"
+        s3_bucket_name: "{{ tf_result.outputs.s3_bucket_name.value }}"
+        sns_topic_arn: "{{ tf_result.outputs.sns_topic_arn.value }}"
+        sqs_queue_url: "{{ tf_result.outputs.sqs_queue_url.value }}"
+        private_ip: "{{ tf_result.outputs.back_private_ip.value }}"
+
+    # -- 3. הזרקת שרת ה-Auth --
+    - name: Add Auth EC2 to dynamic inventory
+      add_host:
+        name: "{{ tf_result.outputs.auth_public_ip.value }}"
+        groups: auth
+        ansible_user: ubuntu
+        aws_region: "us-east-1"
+        auth_service_url: "http://{{ tf_result.outputs.auth_private_ip.value }}:5001"
+        app_dir: "/opt/auth_app"
+        
+        # --- חלקי ה-DB (יוזר, שם ו-endpoint) מטרהפורם ---
+        rds_endpoint: "{{ tf_result.outputs.rds_endpoint.value }}"
+        db_user: "{{ tf_result.outputs.db_user.value }}"
+        db_name: "{{ tf_result.outputs.db_name.value }}"
+        # ------------------------------------------------
+        
+        s3_bucket_name: "{{ tf_result.outputs.s3_bucket_name.value }}"
+        sns_topic_arn: "{{ tf_result.outputs.sns_topic_arn.value }}"
+        sqs_queue_url: "{{ tf_result.outputs.sqs_queue_url.value }}"
+        private_ip: "{{ tf_result.outputs.auth_private_ip.value }}"
+
+    # -- המתנה קריטית לעליית ה-SSH בכל השרתים לפני שממשיכים --
+    - name: Wait for SSH to be ready on all instances
+      wait_for:
+        port: 22
+        host: "{{ item }}"
+        search_regex: OpenSSH
+        delay: 15
+        timeout: 300
+      loop:
+        - "{{ tf_result.outputs.front_public_ip.value }}"
+        - "{{ tf_result.outputs.back_public_ip.value }}"
+        - "{{ tf_result.outputs.auth_public_ip.value }}"
+
+# ========================================================
+# שלב 2: קריאה לפלייבוק הראשי שמריץ את ה-Roles
+# ========================================================
+- name: Deploy App
+  import_playbook: site.yaml
+
+# ========================================================
+# שלב 3: סיכום פריסה והדפסת כתובת הגישה לאפליקציה
+# ========================================================
+- name: Deployment Summary
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Print Frontend URL
+      debug:
+        msg:
+          - "======================================================="
+          - "🚀 DEPLOYMENT COMPLETED SUCCESSFULLY! 🚀"
+          - "======================================================="
+          - "The infrastructure has been provisioned and configured."
+          - "You can now access your application at:"
+          - "👉 http://{{ hostvars['localhost']['tf_result']['outputs']['front_public_ip']['value'] }}"
+          - "======================================================="

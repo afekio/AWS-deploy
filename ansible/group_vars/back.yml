@@ -1,0 +1,13 @@
+---
+
+# group_vars/back.yml
+secret_key: "{{ secret_key }}"
+aws_region: "us-east-1"
+auth_service_url: "http://{{ hostvars['auth'].private_ip }}:5001"
+app_dir: "/opt/back_app"
+
+s3_bucket_name: "myapp-ansible-deploy-bucket-8bxtmo"
+sns_topic_arn: "arn:aws:sns:us-east-1:382535610286:myapp-ansible-deploy-notifications"
+sqs_queue_url: "https://sqs.us-east-1.amazonaws.com/382535610286/myapp-ansible-deploy-queue"
+
+private_ip: "10.0.1.225"

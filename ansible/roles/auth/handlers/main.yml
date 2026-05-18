@@ -1,0 +1,6 @@
+---
+- name: Restart Auth App
+  systemd:
+    name: auth
+    state: restarted
+    daemon_reload: yes

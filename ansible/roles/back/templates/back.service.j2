@@ -1,0 +1,17 @@
+[Unit]
+Description=Backend Python Application
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory={{ app_dir }}
+EnvironmentFile={{ app_dir }}/.env
+
+ExecStart={{ app_dir }}/venv/bin/python {{ app_dir }}/app.py
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+---
+- name: Apply common configuration to all nodes
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+- name: Deploy Frontend App
+  hosts: front
+  become: yes
+  roles:
+    - front
+
+- name: Deploy Backend (Provisioning) App
+  hosts: back
+  become: yes
+  vars_files:
+    - sec.yaml
+  roles:
+    - back
+
+- name: Deploy Auth App
+  hosts: auth
+  become: yes
+  vars_files:
+    - sec.yaml
+  roles:
+    - auth

@@ -1,0 +1,13 @@
+---
+
+# group_vars/auth.yml
+secret_key: "{{ secret_key }}"
+aws_region: "us-east-1"
+app_dir: "/opt/auth_app"
+
+database_url: "postgresql://dbadmin:{{ DB_PASS }}@myapp-ansible-deploy-db.cy90sg0uam5m.us-east-1.rds.amazonaws.com:5432/myappdb"
+s3_bucket_name: "myapp-ansible-deploy-bucket-8bxtmo"
+sns_topic_arn: "arn:aws:sns:us-east-1:382535610286:myapp-ansible-deploy-notifications"
+sqs_queue_url: "https://sqs.us-east-1.amazonaws.com/382535610286/myapp-ansible-deploy-queue"
+
+private_ip: "10.0.1.142"

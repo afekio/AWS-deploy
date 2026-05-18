@@ -1,0 +1,6 @@
+---
+- name: Restart Back App
+  systemd:
+    name: back
+    state: restarted
+    daemon_reload: yes

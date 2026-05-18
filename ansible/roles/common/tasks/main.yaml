@@ -1,0 +1,9 @@
+---
+- name: Update apt cache and install basic tools
+  apt:
+    name:
+      - curl
+      - git
+      - python3-pip
+    state: present
+    update_cache: yes
