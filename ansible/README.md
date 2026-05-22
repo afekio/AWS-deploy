@@ -48,6 +48,7 @@ This architecture ensures that the Terraform state remains the single source of 
 | :--- | :--- |
 | **S3** 🪣 | Object storage for the generated configuration files. |
 | **RDS** 🗄️ | Managed PostgreSQL database for user credentials and file paths. |
+| **SQS** 📮 | Fully managed message queuing service to decouple microservices and process asynchronous background tasks reliably.(Backend to Auth) |
 | **SNS** 📨 | Push notifications for critical system errors (routes directly to email). |
 
 ---
@@ -63,9 +64,9 @@ I locked down the environment using strict networking rules and identity managem
 * **RDS:** Restricted to port `5432`, allowing connections exclusively from the Auth server.
 
 **IAM Roles**
-The backend EC2 instances use attached IAM roles instead of access keys:
-* The Provisioning server has a policy allowing `s3:PutObject` for the specific bucket.
-* The Auth server has a policy allowing `s3:GetObject` for the bucket and `sns:Publish` for the alert topic.
+The backend EC2 instances use attached IAM roles instead of access keys, adhering to the principle of least privilege:
+* **Provisioning (Backend):** Has an IAM policy allowing `s3:PutObject` for the specific configuration bucket, and `sqs:SendMessage` to securely push background tasks into the message queue.
+* **Auth:** Has an IAM policy allowing `s3:GetObject` to read from the bucket, `sqs:ReceiveMessage` and `sqs:DeleteMessage` to consume and process tasks from the queue, and `sns:Publish` to trigger email alerts for critical system events.
 
 ---
 
