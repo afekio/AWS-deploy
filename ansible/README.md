@@ -42,6 +42,22 @@ The deployment process is orchestrated in a single, continuous workflow, divided
 
 This architecture ensures that the Terraform state remains the single source of truth, completely eliminating manual IP tracking, hardcoded values, and human configuration errors.
 
+## 🗄️ Terraform State Management
+
+To ensure infrastructure stability, security, and team collaboration, this project uses a **Remote Backend** to manage the Terraform state (`terraform.tfstate`), rather than storing it locally.
+
+### 📍 Where is the State Located?
+The Terraform state is stored securely in an **AWS S3 Bucket**, with state locking handled by an **AWS DynamoDB Table**.
+
+### 🤔 Why Manage State this Way?
+Storing the state remotely in AWS provides several critical advantages over local storage:
+
+* **🔐 Security & Encryption:** The state file often contains sensitive information (such as database credentials and structural metadata) in plain text. By storing it in S3, we leverage AWS IAM policies to strictly restrict access and use KMS encryption to encrypt the state at rest.
+* **🤝 Single Source of Truth:** In a collaborative or CI/CD environment, multiple developers or automation pipelines might trigger deployments. A remote backend ensures everyone is working against the exact same, up-to-date infrastructure state.
+* **🚦 State Locking (Concurrency Control):** By integrating a DynamoDB table, Terraform locks the state file whenever a `terraform apply` or `destroy` is running. This prevents race conditions where two simultaneous runs could conflict and corrupt the infrastructure.
+* **⏪ Versioning & Recovery:** The S3 bucket is configured with object versioning. If the state file is ever corrupted or accidentally deleted, we can easily roll back to a previous, healthy version of the state.
+
+
 ## 🌩️ AWS Services Used
 
 | Service | Purpose |
