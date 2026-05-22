@@ -1,7 +1,5 @@
 ---
-# ========================================================
-# שלב 1: הקמת התשתית ומיפוי משתנים מדויק לכל שרת
-# ========================================================
+
 - name: Provision Infrastructure and Map Variables
   hosts: localhost
   gather_facts: false
@@ -13,7 +11,7 @@
         force_init: true
       register: tf_result
 
-    # -- 1. הזרקת שרת ה-Front --
+
     - name: Add Frontend EC2 to inventory
       add_host:
         name: "{{ tf_result.outputs.front_public_ip.value }}"
@@ -24,7 +22,7 @@
         app_name: "frontend"
         app_port: 80
 
-    # -- 2. הזרקת שרת ה-Back --
+  
     - name: Add Backend EC2 to dynamic inventory
       add_host:
         name: "{{ tf_result.outputs.back_public_ip.value }}"
@@ -38,7 +36,6 @@
         sqs_queue_url: "{{ tf_result.outputs.sqs_queue_url.value }}"
         private_ip: "{{ tf_result.outputs.back_private_ip.value }}"
 
-    # -- 3. הזרקת שרת ה-Auth --
     - name: Add Auth EC2 to dynamic inventory
       add_host:
         name: "{{ tf_result.outputs.auth_public_ip.value }}"
@@ -48,7 +45,6 @@
         auth_service_url: "http://{{ tf_result.outputs.auth_private_ip.value }}:5001"
         app_dir: "/opt/auth_app"
         
-        # --- חלקי ה-DB (יוזר, שם ו-endpoint) מטרהפורם ---
         rds_endpoint: "{{ tf_result.outputs.rds_endpoint.value }}"
         db_user: "{{ tf_result.outputs.db_user.value }}"
         db_name: "{{ tf_result.outputs.db_name.value }}"
@@ -59,7 +55,6 @@
         sqs_queue_url: "{{ tf_result.outputs.sqs_queue_url.value }}"
         private_ip: "{{ tf_result.outputs.auth_private_ip.value }}"
 
-    # -- המתנה קריטית לעליית ה-SSH בכל השרתים לפני שממשיכים --
     - name: Wait for SSH to be ready on all instances
       wait_for:
         port: 22
@@ -72,15 +67,11 @@
         - "{{ tf_result.outputs.back_public_ip.value }}"
         - "{{ tf_result.outputs.auth_public_ip.value }}"
 
-# ========================================================
-# שלב 2: קריאה לפלייבוק הראשי שמריץ את ה-Roles
-# ========================================================
+
 - name: Deploy App
   import_playbook: site.yaml
 
-# ========================================================
-# שלב 3: סיכום פריסה והדפסת כתובת הגישה לאפליקציה
-# ========================================================
+
 - name: Deployment Summary
   hosts: localhost
   gather_facts: false
