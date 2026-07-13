@@ -5,6 +5,7 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
+                    sh 'ls -al'
                     echo 'Building Docker images...'
 
                     if (fileExists('Auth/dockerfile')) {
