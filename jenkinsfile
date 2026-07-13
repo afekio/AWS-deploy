@@ -12,10 +12,17 @@ pipeline {
     }
 
     stages {
+        stage('Clone Code') {
+            steps {
+                deleteDir()
+                git branch: "${env.BRANCH}", url: "${env.GITHUB_REPO}"
+            }
+        }
+
         stage('Validate Push Branch') {
             steps {
                 script {
-                    def detectedBranch = env.BRANCH_NAME ?: (env.GIT_BRANCH ? env.GIT_BRANCH.replaceFirst('^origin/', '') : '')
+                    def detectedBranch = env.BRANCH_NAME ?: (env.GIT_BRANCH ? env.GIT_BRANCH.replaceFirst('^origin/', '') : env.BRANCH)
                     echo "Webhook received for branch: ${detectedBranch}"
 
                     if (detectedBranch && detectedBranch != env.BRANCH) {
@@ -33,42 +40,11 @@ pipeline {
             }
             steps {
                 script {
-                    sh 'ls -al'
                     echo 'Building Docker images...'
 
-                    def dockerfilesOutput = sh(
-                        script: "find . -type f \\( -iname 'dockerfile' -o -name 'Dockerfile' \\) -not -path './.git/*' | sort",
-                        returnStdout: true
-                    ).trim()
-
-                    if (!dockerfilesOutput) {
-                        echo 'Warning: no dockerfiles found in this branch'
-                        return
-                    }
-
-                    def dockerfiles = dockerfilesOutput.split('\n')
-                    echo "Found ${dockerfiles.size()} dockerfile(s)"
-
-                    for (String dockerfilePath : dockerfiles) {
-                        String contextDir = dockerfilePath.replaceFirst('/[^/]+$', '')
-                        if (!contextDir) {
-                            contextDir = '.'
-                        }
-
-                        String imageTag = contextDir
-                            .replaceFirst('^\\./', '')
-                            .replaceAll('[^A-Za-z0-9._/-]', '-')
-                            .replaceAll('/', '-')
-                            .toLowerCase()
-
-                        if (!imageTag) {
-                            imageTag = 'root'
-                        }
-
-                        echo "Building image ${imageTag}-service from ${dockerfilePath}"
-                        sh "docker build -t ${imageTag}-service ${contextDir} -f ${dockerfilePath}"
-                        echo "Built ${imageTag}-service successfully"
-                    }
+                    sh 'docker build -t auth-service ./Auth -f ./Auth/dockerfile'
+                    sh 'docker build -t backend-service ./Backend -f ./Backend/dockerfile'
+                    sh 'docker build -t frontend-service ./Frontend -f ./Frontend/dockerfile'
 
                     echo 'All Docker images built successfully!'
                 }
