@@ -4,6 +4,7 @@ pipeline {
     environment {
         GITHUB_REPO = 'https://github.com/afekio/AWS-deploy.git'
         BRANCH = 'tf-deploy'
+        SKIP_BUILD = 'false'
     }
 
     triggers {
@@ -11,34 +12,62 @@ pipeline {
     }
 
     stages {
+        stage('Validate Push Branch') {
+            steps {
+                script {
+                    def detectedBranch = env.BRANCH_NAME ?: (env.GIT_BRANCH ? env.GIT_BRANCH.replaceFirst('^origin/', '') : '')
+                    echo "Webhook received for branch: ${detectedBranch}"
+
+                    if (detectedBranch && detectedBranch != env.BRANCH) {
+                        echo "Skipping build: configured branch is ${env.BRANCH}"
+                        env.SKIP_BUILD = 'true'
+                        currentBuild.description = "Skipped branch ${detectedBranch}"
+                    }
+                }
+            }
+        }
+
         stage('Build Docker Images') {
+            when {
+                expression { env.SKIP_BUILD != 'true' }
+            }
             steps {
                 script {
                     sh 'ls -al'
                     echo 'Building Docker images...'
 
-                    if (fileExists('Auth/dockerfile')) {
-                        echo 'Building Auth service...'
-                        sh 'docker build -t auth-service ./Auth -f ./Auth/dockerfile'
-                        echo 'Auth service built successfully'
-                    } else {
-                        echo 'Warning: Auth/dockerfile not found'
+                    def dockerfilesOutput = sh(
+                        script: "find . -type f \\( -iname 'dockerfile' -o -name 'Dockerfile' \\) -not -path './.git/*' | sort",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!dockerfilesOutput) {
+                        echo 'Warning: no dockerfiles found in this branch'
+                        return
                     }
 
-                    if (fileExists('Backend/dockerfile')) {
-                        echo 'Building Backend service...'
-                        sh 'docker build -t backend-service ./Backend -f ./Backend/dockerfile'
-                        echo 'Backend service built successfully'
-                    } else {
-                        echo 'Warning: Backend/dockerfile not found'
-                    }
+                    def dockerfiles = dockerfilesOutput.split('\n')
+                    echo "Found ${dockerfiles.size()} dockerfile(s)"
 
-                    if (fileExists('Frontend/dockerfile')) {
-                        echo 'Building Frontend service...'
-                        sh 'docker build -t frontend-service ./Frontend -f ./Frontend/dockerfile'
-                        echo 'Frontend service built successfully'
-                    } else {
-                        echo 'Warning: Frontend/dockerfile not found'
+                    for (String dockerfilePath : dockerfiles) {
+                        String contextDir = dockerfilePath.replaceFirst('/[^/]+$', '')
+                        if (!contextDir) {
+                            contextDir = '.'
+                        }
+
+                        String imageTag = contextDir
+                            .replaceFirst('^\\./', '')
+                            .replaceAll('[^A-Za-z0-9._/-]', '-')
+                            .replaceAll('/', '-')
+                            .toLowerCase()
+
+                        if (!imageTag) {
+                            imageTag = 'root'
+                        }
+
+                        echo "Building image ${imageTag}-service from ${dockerfilePath}"
+                        sh "docker build -t ${imageTag}-service ${contextDir} -f ${dockerfilePath}"
+                        echo "Built ${imageTag}-service successfully"
                     }
 
                     echo 'All Docker images built successfully!'
