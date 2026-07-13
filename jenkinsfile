@@ -1,6 +1,15 @@
 pipeline {
     agent any
 
+    environment {
+        GITHUB_REPO = 'https://github.com/afekio/AWS-deploy.git'
+        BRANCH = 'tf-deploy'
+    }
+
+    triggers {
+        githubPush()
+    }
+
     stages {
         stage('Build Docker Images') {
             steps {
