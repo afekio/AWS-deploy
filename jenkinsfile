@@ -1,0 +1,39 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    echo 'Building Docker images...'
+
+                    if (fileExists('Auth/dockerfile')) {
+                        echo 'Building Auth service...'
+                        sh 'docker build -t auth-service ./Auth -f ./Auth/dockerfile'
+                        echo 'Auth service built successfully'
+                    } else {
+                        echo 'Warning: Auth/dockerfile not found'
+                    }
+
+                    if (fileExists('Backend/dockerfile')) {
+                        echo 'Building Backend service...'
+                        sh 'docker build -t backend-service ./Backend -f ./Backend/dockerfile'
+                        echo 'Backend service built successfully'
+                    } else {
+                        echo 'Warning: Backend/dockerfile not found'
+                    }
+
+                    if (fileExists('Frontend/dockerfile')) {
+                        echo 'Building Frontend service...'
+                        sh 'docker build -t frontend-service ./Frontend -f ./Frontend/dockerfile'
+                        echo 'Frontend service built successfully'
+                    } else {
+                        echo 'Warning: Frontend/dockerfile not found'
+                    }
+
+                    echo 'All Docker images built successfully!'
+                }
+            }
+        }
+    }
+}
